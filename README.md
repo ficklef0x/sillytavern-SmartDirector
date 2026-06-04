@@ -99,7 +99,7 @@ MIT License - feel free to use, modify, and distribute.
 
 ## Author
 
-Created by ficklef0x
+vibecoded with kimi 2.6 and gemma 4 by ficklef0x
 
 ## Version History
 
