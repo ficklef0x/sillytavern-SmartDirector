@@ -1,0 +1,11 @@
+{
+    "display_name": "Smart Director",
+    "loading_order": 100,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "ficklef0x",
+    "version": "1.0",
+    "description": "Uses an AI Director to intelligently select the next speaker in group chats."
+}

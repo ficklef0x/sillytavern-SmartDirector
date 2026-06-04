@@ -1,0 +1,72 @@
+<div class="smart-order-settings">
+    <div class="inline-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header">
+            <b>Smart Director</b>
+            <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+        </div>
+        <div class="inline-drawer-content">
+            <div class="flex-container flexFlowColumn">
+                <label class="checkbox_label" for="smart_order_enabled">
+                    <input type="checkbox" id="smart_order_enabled" />
+                    <span>Enabled</span>
+                </label>
+            </div>
+
+            <div class="flex-container flexFlowColumn marginTop5">
+                <label for="smart_order_api_mode">API Mode</label>
+                <select id="smart_order_api_mode" class="text_pole">
+                    <option value="auto">Auto-detect (Current API)</option>
+                    <option value="custom">Custom API</option>
+                </select>
+            </div>
+
+            <div id="smart_order_custom_api_settings" style="display: none;">
+                <div class="flex-container flexFlowColumn marginTop5">
+                    <label for="smart_order_custom_url">API URL</label>
+                    <input type="text" id="smart_order_custom_url" class="text_pole" placeholder="https://api.example.com/v1/chat/completions" />
+                </div>
+                <div class="flex-container flexFlowColumn marginTop5">
+                    <label for="smart_order_custom_key">API Key</label>
+                    <input type="password" id="smart_order_custom_key" class="text_pole" placeholder="sk-..." />
+                </div>
+            </div>
+
+            <div class="flex-container flexFlowColumn marginTop5">
+                <label for="smart_order_prompt_preset">Prompt Preset</label>
+                <select id="smart_order_prompt_preset" class="text_pole">
+                    <option value="default">Default (Standard Models)</option>
+                    <option value="thinking">Thinking Models (Ultra-Constrained)</option>
+                    <option value="xml">XML Tagged</option>
+                    <option value="custom">Custom (Editable)</option>
+                </select>
+            </div>
+
+            <div class="flex-container flexFlowColumn marginTop5">
+                <label for="smart_order_custom_prompt">Director Prompt</label>
+                <textarea id="smart_order_custom_prompt" class="text_pole textarea_compact" rows="6"></textarea>
+                <small>Use &#123;&#123;characters&#125;&#125;, &#123;&#123;notChar&#125;&#125;, and &#123;&#123;history&#125;&#125; macros. For more macros, use "/? macros" in chat.</small>
+            </div>
+
+            <div class="flex-container flexFlowColumn marginTop5">
+                <label for="smart_order_max_history">Max History Messages</label>
+                <input type="number" id="smart_order_max_history" class="text_pole widthUnset" min="1" max="100" step="1" />
+            </div>
+
+            <div class="flex-container flexFlowColumn marginTop5">
+                <label class="checkbox_label" for="smart_order_auto_trigger">
+                    <input type="checkbox" id="smart_order_auto_trigger" />
+                    <span>Auto-trigger after each message</span>
+                </label>
+            </div>
+
+            <div class="flex-container flexFlowColumn marginTop5">
+                <div class="menu_button menu_button_icon" id="smart_order_test_connection">
+                    <i class="fa-solid fa-plug"></i>
+                    <span>Test Connection</span>
+                </div>
+            </div>
+
+            <div id="smart_order_status" class="smart-order-status marginTop5"></div>
+        </div>
+    </div>
+</div>

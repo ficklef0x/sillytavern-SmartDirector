@@ -1,0 +1,28 @@
+.smart-order-settings .inline-drawer-content {
+    padding: 5px 0;
+}
+
+.smart-order-settings label {
+    margin-bottom: 3px;
+}
+
+.smart-order-status {
+    font-size: 0.9em;
+    min-height: 1.2em;
+}
+
+.smart-order-status.ready {
+    color: var(--success-color, #44ff44);
+}
+
+.smart-order-status.thinking {
+    color: var(--accent-color, #4488ff);
+}
+
+.smart-order-status.error {
+    color: var(--error-color, #ff4444);
+}
+
+.smart-order-status.selected {
+    color: var(--success-color, #44ff44);
+}
