@@ -1,4 +1,4 @@
-// Smart Director Extension - Epoch 3
+// Smart Director Extension
 // AI Director for Group Chats
 
 import {
@@ -862,14 +862,16 @@ let pendingSmartOrder = false;
 let smartOrderRunning = false;
 
 function setupEventListeners() {
-    // Aggressively remove blank messages using both MutationObserver and polling
+    // Remove blank messages created by generateGroupWrapper when strategy 4 is active.
+    // This only runs during group wrapper execution, NOT during normal editing.
     const removeBlankMessages = () => {
         const context = getContext();
         if (!context.groupId) return;
         const group = context.groups.find(g => g.id === context.groupId);
         if (!group || Number(group.activation_strategy) !== 4) return;
 
-        // Check last message in chat array
+        // Only remove the LAST message if it's a blank user message
+        // (the one generateGroupWrapper just created)
         const lastMessage = context.chat[context.chat.length - 1];
         if (lastMessage && lastMessage.is_user && !lastMessage.mes.trim()) {
             console.log('[Smart Director] Removing blank user message from chat array');
@@ -879,47 +881,51 @@ function setupEventListeners() {
             }
         }
 
-        // Remove blank messages from DOM
-        $('#chat .mes').each(function() {
-            const $mes = $(this);
-            const isUser = $mes.hasClass('mes_user') || $mes.attr('is_user') === 'true';
-            const text = ($mes.find('.mes_text').text() || '').trim();
+        // Only remove the LAST DOM element if it's a blank user message
+        const $lastMes = $('#chat .mes').last();
+        if ($lastMes.length) {
+            const isUser = $lastMes.hasClass('mes_user') || $lastMes.attr('is_user') === 'true';
+            const text = ($lastMes.find('.mes_text').text() || '').trim();
             if (isUser && !text) {
                 console.log('[Smart Director] Removing blank user message from DOM');
-                $mes.remove();
+                $lastMes.remove();
             }
-        });
+        }
     };
 
-    // MutationObserver for immediate removal
-    const chatObserver = new MutationObserver((mutations) => {
-        let shouldCheck = false;
-        for (const mutation of mutations) {
-            if (mutation.addedNodes.length > 0) {
-                shouldCheck = true;
-                break;
-            }
-        }
-        if (shouldCheck) {
-            removeBlankMessages();
-        }
-    });
-
-    // Observe the chat container with subtree
-    const chatContainer = document.getElementById('chat');
-    if (chatContainer) {
-        chatObserver.observe(chatContainer, { childList: true, subtree: true });
-    }
-
-    // Also poll aggressively for the first few seconds after group wrapper starts
+    // MutationObserver - ONLY active during group wrapper execution
+    let chatObserver = null;
     let pollInterval = null;
+
     eventSource.on(event_types.GROUP_WRAPPER_STARTED, () => {
         const context = getContext();
         if (!context.groupId) return;
         const group = context.groups.find(g => g.id === context.groupId);
         if (!group || Number(group.activation_strategy) !== 4) return;
 
-        // Start polling
+        console.log('[Smart Director] Group wrapper started, activating blank message removal');
+
+        // Connect MutationObserver temporarily
+        if (!chatObserver) {
+            chatObserver = new MutationObserver((mutations) => {
+                let shouldCheck = false;
+                for (const mutation of mutations) {
+                    if (mutation.addedNodes.length > 0) {
+                        shouldCheck = true;
+                        break;
+                    }
+                }
+                if (shouldCheck) {
+                    removeBlankMessages();
+                }
+            });
+        }
+        const chatContainer = document.getElementById('chat');
+        if (chatContainer) {
+            chatObserver.observe(chatContainer, { childList: true, subtree: true });
+        }
+
+        // Start polling as backup
         if (pollInterval) clearInterval(pollInterval);
         pollInterval = setInterval(removeBlankMessages, 10);
 
@@ -930,6 +936,14 @@ function setupEventListeners() {
                 pollInterval = null;
             }
         }, 2000);
+    });
+
+    eventSource.on(event_types.GROUP_WRAPPER_FINISHED, () => {
+        // Disconnect MutationObserver so it doesn't interfere with editing
+        if (chatObserver) {
+            chatObserver.disconnect();
+            console.log('[Smart Director] Group wrapper finished, deactivated blank message removal');
+        }
     });
 
     // When user sends a message in a group with strategy 4,

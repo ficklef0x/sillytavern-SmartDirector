@@ -99,8 +99,8 @@ MIT License - feel free to use, modify, and distribute.
 
 ## Author
 
-Created by ficklef0x
+vibecoded with kimi 2.6 and gemma 4 by ficklef0x
 
 ## Version History
 
-- **1.0** - Initial release
+- **1.0.0** - Initial release as Smart Director. AI-powered next speaker selection for group chats with API autodetect, JSON output, prompt presets, and group strategy integration.
