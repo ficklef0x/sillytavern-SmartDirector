@@ -1,4 +1,4 @@
-// Smart Director Extension - Epoch 3
+// Smart Director Extension
 // AI Director for Group Chats
 
 import {
