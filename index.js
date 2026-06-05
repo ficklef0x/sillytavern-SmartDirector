@@ -55,14 +55,14 @@ const promptPresets = {
     default: `You are the Director AI. Your ONLY job is to pick the next speaker from the list below.
 
 ACTIVE CHARACTERS: {{characters}}
-EXCLUDED (must NOT pick): {{notChar}}
+FORBIDDEN (you MUST NEVER pick these): {{notChar}}
 
 RECENT CONVERSATION:
 {{history}}
 
 RULES:
 - Pick EXACTLY ONE name from ACTIVE CHARACTERS.
-- Do NOT pick anyone from EXCLUDED.
+- NEVER pick anyone from FORBIDDEN. If the most logical choice is in FORBIDDEN, pick the next best character from ACTIVE CHARACTERS.
 - Output valid JSON: {"speaker":"NameHere"}
 - No extra text, no markdown, no explanations.
 
@@ -74,14 +74,15 @@ NOW YOUR TURN:`,
     thinking: `DIRECTIVE: Pick the next speaker.
 
 CHARACTERS: {{characters}}
-EXCLUDED (never pick): {{notChar}}
+FORBIDDEN (NEVER pick these): {{notChar}}
 
 HISTORY:
 {{history}}
 
 RULES:
 - Output MUST be valid JSON: {"speaker":"NameHere"}
-- Name MUST come from CHARACTERS, not EXCLUDED.
+- Name MUST come from CHARACTERS.
+- NEVER pick from FORBIDDEN. If the obvious choice is FORBIDDEN, pick the next best from CHARACTERS.
 - No extra text. No reasoning. Just the JSON object.
 
 EXAMPLE:
@@ -92,11 +93,12 @@ NOW YOUR TURN:`,
     xml: `You are the Director. Pick the next speaker.
 
 Characters: {{characters}}
-Excluded: {{notChar}}
+Forbidden (NEVER pick): {{notChar}}
 History: {{history}}
 
 Rules:
-- Pick from Characters, not Excluded.
+- Pick ONLY from Characters.
+- NEVER pick from Forbidden.
 - Output valid JSON: {"speaker":"NameHere"}
 - No extra text.
 
@@ -646,6 +648,15 @@ async function runSmartOrder() {
         if (!speakerName) {
             console.error('[Smart Director] Could not extract speaker from response');
             setStatus('Could not understand Director response', 'error');
+            console.log('[Smart Director] ========== SMART ORDER END ==========');
+            return false;
+        }
+
+        const excludedNames = getExcludedNames();
+        if (excludedNames.length > 0 && excludedNames.some(n => n.toLowerCase() === speakerName.toLowerCase())) {
+            console.error('[Smart Director] Director picked excluded name:', speakerName);
+            setStatus(`Director tried to pick excluded user "${speakerName}"`, 'error');
+            toastr.error(`Director picked the user "${speakerName}". Try a different prompt preset or model.`);
             console.log('[Smart Director] ========== SMART ORDER END ==========');
             return false;
         }
