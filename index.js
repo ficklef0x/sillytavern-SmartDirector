@@ -28,7 +28,8 @@ const defaultSettings = Object.freeze({
     apiMode: 'auto',
     customUrl: '',
     customKey: '',
-    model: '', // REVISION: Added model override setting field
+    model: '',
+    maxTokens: 200,
     promptPreset: 'default',
     customPrompt: '',
     maxHistoryMessages: 20,
@@ -133,8 +134,8 @@ function getDirectorEndpoint() {
 
 function buildDirectorRequest(prompt) {
     const settings = getSettings();
+    const tokenLimit = settings.maxTokens || 200;
 
-    // REVISION: Prioritize manual menu selection before checking native backends
     const activeModel = settings.model
         || (typeof getChatCompletionModel === 'function' ? getChatCompletionModel() : null)
         || oai_settings[`${oai_settings.chat_completion_source}_model`]
@@ -148,7 +149,7 @@ function buildDirectorRequest(prompt) {
             body: {
                 model: activeModel,
                 messages: [{ role: 'user', content: prompt }],
-                max_tokens: 200,
+                max_tokens: tokenLimit,
                 temperature: 0.3,
             },
             mode: 'custom',
@@ -162,7 +163,7 @@ function buildDirectorRequest(prompt) {
                     model: activeModel,
                     stream: false,
                     messages: [{ role: 'user', content: prompt }],
-                    max_tokens: 200,
+                    max_tokens: tokenLimit,
                     temperature: 0.1,
                     chat_completion_source: oai_settings.chat_completion_source,
                 },
@@ -174,8 +175,8 @@ function buildDirectorRequest(prompt) {
                 body: {
                     stream: false,
                     prompt: prompt,
-                    max_tokens: 200,
-                    max_new_tokens: 200,
+                    max_tokens: tokenLimit,
+                    max_new_tokens: tokenLimit,
                     temperature: 0.1,
                     api_type: textgenerationwebui_settings.type,
                     api_server: textgenerationwebui_settings.server_urls?.[textgenerationwebui_settings.type] || '',
@@ -188,7 +189,7 @@ function buildDirectorRequest(prompt) {
             return {
                 body: {
                     prompt: prompt,
-                    max_length: 200,
+                    max_length: tokenLimit,
                     temperature: 0.1,
                     gui_settings: false,
                     streaming: false,
@@ -268,7 +269,8 @@ async function loadSettingsUI() {
     $('#smart_order_api_mode').val(settings.apiMode);
     $('#smart_order_custom_url').val(settings.customUrl);
     $('#smart_order_custom_key').val(settings.customKey);
-    $('#smart_order_model').val(settings.model); // REVISION: Populating UI text field
+    $('#smart_order_model').val(settings.model);
+    $('#smart_order_max_tokens').val(settings.maxTokens);
     $('#smart_order_prompt_preset').val(settings.promptPreset);
     $('#smart_order_custom_prompt').val(settings.customPrompt);
     $('#smart_order_max_history').val(settings.maxHistoryMessages);
@@ -301,9 +303,14 @@ async function loadSettingsUI() {
         saveSettingsDebounced();
     });
 
-    // REVISION: Event hook for recording and storing manual model choices
     $('#smart_order_model').on('input', function () {
         settings.model = $(this).val().trim();
+        saveSettingsDebounced();
+    });
+
+    $('#smart_order_max_tokens').on('input', function () {
+        const val = parseInt($(this).val());
+        settings.maxTokens = isNaN(val) ? 200 : Math.max(10, Math.min(8192, val));
         saveSettingsDebounced();
     });
 
@@ -440,7 +447,13 @@ function buildPrompt(memberNames, history) {
 async function callDirectorApi(prompt) {
     const { endpoint, mode } = getDirectorEndpoint();
     const request = buildDirectorRequest(prompt);
+
+    console.log('[Smart Director] API Endpoint:', endpoint);
+    console.log('[Smart Director] API Mode:', mode);
+
     if (!endpoint || !request) throw new Error('API request assembly failure');
+
+    console.log('[Smart Director] Request Body:', JSON.stringify(request.body, null, 2));
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000);
@@ -451,6 +464,7 @@ async function callDirectorApi(prompt) {
             const settings = getSettings();
             const headers = { 'Content-Type': 'application/json' };
             if (settings.customKey) headers['Authorization'] = `Bearer ${settings.customKey}`;
+            console.log('[Smart Director] Request Headers:', JSON.stringify(headers));
             response = await fetch(endpoint, {
                 method: 'POST',
                 headers,
@@ -458,6 +472,7 @@ async function callDirectorApi(prompt) {
                 signal: controller.signal,
             });
         } else {
+            console.log('[Smart Director] Using SillyTavern backend proxy');
             response = await fetch(endpoint, {
                 method: 'POST',
                 headers: getRequestHeaders(),
@@ -467,9 +482,19 @@ async function callDirectorApi(prompt) {
         }
 
         clearTimeout(timeoutId);
-        if (!response.ok) throw new Error(`API Error ${response.status}`);
+        if (!response.ok) {
+            const text = await response.text();
+            console.error('[Smart Director] API HTTP Error:', response.status, text);
+            throw new Error(`API Error ${response.status}: ${text}`);
+        }
         const data = await response.json();
-        return parseDirectorResponse(data, mode);
+        console.log('[Smart Director] Raw API Response Data:', JSON.stringify(data, null, 2));
+        const content = parseDirectorResponse(data, mode);
+        if (!content) {
+            console.warn('[Smart Director] Empty response from Director. Data:', data);
+            throw new Error('Director returned empty response');
+        }
+        return content;
     } catch (error) {
         clearTimeout(timeoutId);
         throw error;
@@ -478,52 +503,197 @@ async function callDirectorApi(prompt) {
 
 function extractSpeaker(response, memberNames) {
     if (!response || !memberNames.length) return null;
+
+    // 0. Try JSON parse first (with markdown code block extraction)
     try {
         let jsonText = response;
         const codeBlockMatch = response.match(/```json\s*([\s\S]*?)```/);
         if (codeBlockMatch) jsonText = codeBlockMatch[1];
+        else {
+            const genericBlockMatch = response.match(/```\s*([\s\S]*?)```/);
+            if (genericBlockMatch) jsonText = genericBlockMatch[1];
+        }
+
         const parsed = JSON.parse(jsonText);
         if (parsed && typeof parsed.speaker === 'string') {
             const name = parsed.speaker.trim();
             const exact = memberNames.find(n => n === name);
             if (exact) return exact;
-            return memberNames.find(n => n.toLowerCase() === name.toLowerCase()) || null;
+            const ci = memberNames.find(n => n.toLowerCase() === name.toLowerCase());
+            if (ci) return ci;
         }
-    } catch {}
+    } catch { /* Not valid JSON, continue */ }
+
+    // 1. Try XML <speaker> tag (legacy fallback)
+    const xmlMatch = response.match(/<speaker>([^<]+)<\/speaker>/i);
+    if (xmlMatch) {
+        const name = xmlMatch[1].trim();
+        const exact = memberNames.find(n => n === name);
+        if (exact) return exact;
+        const ci = memberNames.find(n => n.toLowerCase() === name.toLowerCase());
+        if (ci) return ci;
+    }
+
+    // 2. Strip common formatting artifacts and template echoes
+    let stripped = response
+        .replace(/\[\s*Character\s+Name\s*\]/gi, '')
+        .replace(/\[\s*Name\s*\]/gi, '')
+        .replace(/^[^a-zA-Z0-9]+/, '')
+        .replace(/[^a-zA-Z0-9]+$/, '')
+        .trim();
+
+    // 3. Try <thinking> block followed by clean name
+    const thinkMatch = response.match(/<\/?thinking>\s*([A-Za-z0-9_\-\s]+?)\s*(?:\n|$)/i);
+    if (thinkMatch) {
+        const name = thinkMatch[1].trim();
+        const exact = memberNames.find(n => n === name);
+        if (exact) return exact;
+    }
+
+    // 4. Extract last non-empty line
+    const lines = stripped.split('\n').map(l => l.trim()).filter(Boolean);
+    const lastLine = lines[lines.length - 1] || '';
+
+    // 5. Clean common prefixes/suffixes and artifacts
+    const cleaned = lastLine
+        .replace(/^(Next speaker[\s:]+|Speaker[\s:]+|Name[\s:]+|Character[\s:]+|Selected[\s:]+|Response[\s:]+|DIRECTOR PICK[\s:]+)/i, '')
+        .replace(/^[\[("']+/, '')
+        .replace(/[\]\)"']+$/, '')
+        .replace(/[.!?,:;]+$/, '')
+        .trim();
+
+    // Exact match
+    const exact = memberNames.find(n => n === cleaned);
+    if (exact) return exact;
+
+    // Case-insensitive match
+    const ci = memberNames.find(n => n.toLowerCase() === cleaned.toLowerCase());
+    if (ci) return ci;
+
+    // 6. Fuzzy: check if any member name appears as a standalone word in the response
+    for (const name of memberNames) {
+        const regex = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+        if (regex.test(response)) return name;
+    }
+
+    // 7. Last resort: check if cleaned string contains a member name
+    for (const name of memberNames) {
+        if (cleaned.toLowerCase().includes(name.toLowerCase())) return name;
+    }
+
+    // 8. Ultra-last resort: check if ANY word in the response matches a member name
+    const words = stripped.split(/\s+/);
+    for (const word of words.reverse()) {
+        const w = word.replace(/[^a-zA-Z0-9]/g, '');
+        if (!w) continue;
+        for (const name of memberNames) {
+            const nameClean = name.replace(/[^a-zA-Z0-9]/g, '');
+            if (w.toLowerCase() === nameClean.toLowerCase()) return nameClean;
+        }
+    }
+
     return null;
 }
 
 async function runSmartOrder() {
     const settings = getSettings();
-    if (!settings.enabled) return false;
+    console.log('[Smart Director] ========== SMART ORDER START ==========');
+    console.log('[Smart Director] Settings:', JSON.stringify(settings));
+
+    if (!settings.enabled) {
+        console.log('[Smart Director] Extension is disabled, aborting');
+        console.log('[Smart Director] ========== SMART ORDER END ==========');
+        return false;
+    }
     const context = getContext();
-    if (!context.groupId) return false;
+    if (!context.groupId) {
+        console.log('[Smart Director] Not in a group chat, aborting');
+        console.log('[Smart Director] ========== SMART ORDER END ==========');
+        return false;
+    }
 
     const activeMembers = getActiveGroupMembers();
     const memberNames = activeMembers.map(c => c.name);
-    if (memberNames.length === 0) return false;
+    console.log('[Smart Director] Active Members:', memberNames);
+    if (memberNames.length === 0) {
+        console.warn('[Smart Director] No active members');
+        toastr.warning('No active members in this group');
+        console.log('[Smart Director] ========== SMART ORDER END ==========');
+        return false;
+    }
 
     const history = getChatHistory(settings.maxHistoryMessages);
-    if (!history) return false;
+    console.log('[Smart Director] Chat History length:', history?.length || 0);
+    if (!history) {
+        console.warn('[Smart Director] No chat history');
+        toastr.warning('No chat history available');
+        console.log('[Smart Director] ========== SMART ORDER END ==========');
+        return false;
+    }
 
     const prompt = buildPrompt(memberNames, history);
+    console.log('[Smart Director] Prompt length:', prompt.length);
     setStatus('Consulting the Director...', 'thinking');
 
     try {
+        console.log('[Smart Director] Calling Director API...');
         const rawResponse = await callDirectorApi(prompt);
+        console.log('[Smart Director] Raw Response:', rawResponse);
+
         const speakerName = extractSpeaker(rawResponse, memberNames);
-        if (!speakerName) { setStatus('Unrecognized response format', 'error'); return false; }
+        console.log('[Smart Director] Extracted Speaker:', speakerName);
+
+        if (!speakerName) {
+            console.error('[Smart Director] Could not extract speaker from response');
+            setStatus('Could not understand Director response', 'error');
+            console.log('[Smart Director] ========== SMART ORDER END ==========');
+            return false;
+        }
 
         const char = getGroupCharacterByName(speakerName);
-        if (!char) return false;
-        const chid = context.characters.indexOf(char);
-        if (chid === -1) return false;
+        console.log('[Smart Director] Character Found:', char ? char.name : null);
+        if (!char) {
+            console.error('[Smart Director] Character not found in group:', speakerName);
+            setStatus(`Character "${speakerName}" not found in group`, 'error');
+            console.log('[Smart Director] ========== SMART ORDER END ==========');
+            return false;
+        }
 
+        const isInGroup = activeMembers.some(c => c.avatar === char.avatar);
+        if (!isInGroup) {
+            console.error('[Smart Director] Character not in active group:', speakerName);
+            setStatus(`Character "${speakerName}" is not active in this group`, 'error');
+            console.log('[Smart Director] ========== SMART ORDER END ==========');
+            return false;
+        }
+
+        const chid = context.characters.indexOf(char);
+        console.log('[Smart Director] Character Index (chid):', chid);
+        if (chid === -1) {
+            console.error('[Smart Director] Character index not found in global list');
+            console.log('[Smart Director] ========== SMART ORDER END ==========');
+            return false;
+        }
+
+        console.log('[Smart Director] Selected:', speakerName, '(chid:', chid, ')');
         setStatus(`Selected: ${speakerName}`, 'selected');
-        await Generate('normal', { force_chid: chid });
-        return true;
+
+        console.log('[Smart Director] Triggering generation for chid:', chid);
+        try {
+            await Generate('normal', { force_chid: chid });
+            console.log('[Smart Director] Generation triggered successfully');
+            console.log('[Smart Director] ========== SMART ORDER END ==========');
+            return true;
+        } catch (genError) {
+            console.error('[Smart Director] Generation failed:', genError);
+            setStatus(`Generation failed: ${genError.message}`, 'error');
+            console.log('[Smart Director] ========== SMART ORDER END ==========');
+            return false;
+        }
     } catch (error) {
+        console.error('[Smart Director] Error:', error);
         setStatus(`Error: ${error.message}`, 'error');
+        console.log('[Smart Director] ========== SMART ORDER END ==========');
         return false;
     }
 }
@@ -549,8 +719,8 @@ async function testConnection() {
     try {
         const testPrompt = 'Reply with the word "OK" and nothing else.';
         let body;
+        const tokenLimit = settings.maxTokens || 200;
 
-        // REVISION: Map manual input targets to connection verification routines
         const activeModel = settings.model
             || (typeof getChatCompletionModel === 'function' ? getChatCompletionModel() : null)
             || oai_settings[`${oai_settings.chat_completion_source}_model`]
@@ -563,7 +733,7 @@ async function testConnection() {
             body = {
                 model: activeModel,
                 messages: [{ role: 'user', content: testPrompt }],
-                max_tokens: 100,
+                max_tokens: tokenLimit,
                 temperature: 0,
             };
         } else if (mode === 'openai') {
@@ -571,7 +741,7 @@ async function testConnection() {
                 model: activeModel,
                 stream: false,
                 messages: [{ role: 'user', content: testPrompt }],
-                max_tokens: 100,
+                max_tokens: tokenLimit,
                 temperature: 0,
                 chat_completion_source: oai_settings.chat_completion_source,
             };
@@ -579,8 +749,8 @@ async function testConnection() {
             body = {
                 stream: false,
                 prompt: testPrompt,
-                max_tokens: 100,
-                max_new_tokens: 100,
+                max_tokens: tokenLimit,
+                max_new_tokens: tokenLimit,
                 temperature: 0,
                 api_type: textgenerationwebui_settings.type,
                 api_server: textgenerationwebui_settings.server_urls?.[textgenerationwebui_settings.type] || '',
@@ -588,7 +758,7 @@ async function testConnection() {
         } else if (mode === 'kobold') {
             body = {
                 prompt: testPrompt,
-                max_length: 100,
+                max_length: tokenLimit,
                 temperature: 0,
                 gui_settings: false,
                 streaming: false,

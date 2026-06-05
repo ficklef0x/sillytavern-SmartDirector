@@ -35,6 +35,7 @@ Then enable **Smart Director** from the Extensions panel (cubes icon).
 
 - **API Mode**: Auto-detect (uses your current API) or Custom (define your own URL/key)
 - **Model Override**: Manually specify a model (e.g., `gemini-2.5-pro`, `deepseek-chat`). Leave blank to use the currently selected SillyTavern model.
+- **Max Tokens**: Limit how many tokens the Director can use for its response (default 200). Increase for reasoning models that need more space.
 - **Prompt Preset**: Choose from built-in templates or edit your own
 - **Director Prompt**: View and customize the prompt sent to the AI. Uses macros:
   - `{{characters}}` - List of active characters
@@ -102,6 +103,10 @@ vibecoded with kimi 2.6 and gemma 4 by ficklef0x
 
 ## Version History
 
+- **1.0.3** - Robust parsing + configurable token limit:
+  - Restores 8 fallback parsing strategies for messy model output (newlines, markdown blocks, XML tags, fuzzy matching, etc.).
+  - Adds a configurable **Max Tokens** setting so you can tune the Director's response length.
+  - Brings back `[Smart Director]` console logging for easier debugging.
 - **1.0.2** - Model override fix (thanks again to RetiredHippie on the SillyTavern Discord):
   - Adds a **Model Override** input field so you can manually specify which model the Director uses.
   - Falls back to the currently selected SillyTavern model when left blank.
