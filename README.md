@@ -18,14 +18,12 @@ Instead of using static rules (Natural, List, Manual, Pooled) to decide who spea
 
 ## Installation
 
-1. Download or clone this repository into your SillyTavern extensions folder:
-   ```
-   SillyTavern/public/scripts/extensions/third-party/
-   ```
+Paste this URL into SillyTavern's **Install Extension** input:
+```
+https://github.com/ficklef0x/sillytavern-SmartDirector
+```
 
-2. Restart SillyTavern or reload extensions.
-
-3. In SillyTavern, go to **Extensions** panel (cubes icon) and enable **Smart Director**.
+Then enable **Smart Director** from the Extensions panel (cubes icon).
 
 ## Usage
 
@@ -103,4 +101,8 @@ vibecoded with kimi 2.6 and gemma 4 by ficklef0x
 
 ## Version History
 
+- **1.0.1** - API compatibility fix (thanks to RetiredHippie on the SillyTavern Discord):
+  - Adds the missing `model` parameter for OpenAI/custom API requests.
+  - Switches message role from `system` to `user` for broader provider compatibility.
+  - Expands token limits to prevent response truncation on reasoning models.
 - **1.0.0** - Initial release as Smart Director. AI-powered next speaker selection for group chats with API autodetect, JSON output, prompt presets, and group strategy integration.

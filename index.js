@@ -1,5 +1,3 @@
-// Smart Director Extension
-// AI Director for Group Chats
 
 import {
     eventSource,
@@ -14,13 +12,13 @@ import {
     getContext,
     renderExtensionTemplateAsync,
 } from '../../../extensions.js';
-import { oai_settings } from '../../../openai.js';
+import { oai_settings, getChatCompletionModel } from '../../../openai.js';
 import { textgenerationwebui_settings } from '../../../textgen-settings.js';
 import { kai_settings } from '../../../kai-settings.js';
 import { delay } from '../../../utils.js';
 
 const MODULE_NAME = 'smart-order';
-const EXTENSION_PATH = 'third-party/st-smart-order';
+const EXTENSION_PATH = 'third-party/sillytavern-SmartDirector';
 
 // ------------------------------------------------------------------
 // Default Settings
@@ -139,8 +137,8 @@ function buildDirectorRequest(prompt) {
         return {
             body: {
                 model: 'gpt-4o-mini',
-                messages: [{ role: 'system', content: prompt }],
-                max_tokens: 50,
+                messages: [{ role: 'user', content: prompt }],
+                max_tokens: 200,
                 temperature: 0.3,
             },
             mode: 'custom',
@@ -149,11 +147,19 @@ function buildDirectorRequest(prompt) {
 
     switch (main_api) {
         case 'openai': {
+            const activeModel = (typeof getChatCompletionModel === 'function' ? getChatCompletionModel() : null)
+                || oai_settings[`${oai_settings.chat_completion_source}_model`]
+                || oai_settings.openai_model
+                || oai_settings.google_model
+                || oai_settings.custom_model
+                || 'gpt-4o-mini';
+
             return {
                 body: {
+                    model: activeModel,
                     stream: false,
-                    messages: [{ role: 'system', content: prompt }],
-                    max_tokens: 50,
+                    messages: [{ role: 'user', content: prompt }], // FIXED: Set to user role for maximum provider cross-compatibility
+                    max_tokens: 200, // FIXED: Expanded token limit to give reasoning models buffer space
                     temperature: 0.1,
                     chat_completion_source: oai_settings.chat_completion_source,
                 },
@@ -165,8 +171,8 @@ function buildDirectorRequest(prompt) {
                 body: {
                     stream: false,
                     prompt: prompt,
-                    max_tokens: 50,
-                    max_new_tokens: 50,
+                    max_tokens: 200,
+                    max_new_tokens: 200,
                     temperature: 0.1,
                     api_type: textgenerationwebui_settings.type,
                     api_server: textgenerationwebui_settings.server_urls?.[textgenerationwebui_settings.type] || '',
@@ -179,7 +185,7 @@ function buildDirectorRequest(prompt) {
             return {
                 body: {
                     prompt: prompt,
-                    max_length: 50,
+                    max_length: 200,
                     temperature: 0.1,
                     gui_settings: false,
                     streaming: false,
@@ -611,7 +617,7 @@ function extractSpeaker(response, memberNames) {
         if (!w) continue;
         for (const name of memberNames) {
             const nameClean = name.replace(/[^a-zA-Z0-9]/g, '');
-            if (w.toLowerCase() === nameClean.toLowerCase()) return name;
+            if (w.toLowerCase() === nameClean.toLowerCase()) return nameClean;
         }
     }
 
@@ -698,7 +704,6 @@ async function runSmartOrder() {
             return false;
         }
 
-        // Extra safety: verify character is actually in the active group
         const isInGroup = activeMembers.some(c => c.avatar === char.avatar);
         console.log('[Smart Director] Verified in group:', isInGroup);
         if (!isInGroup) {
@@ -721,11 +726,6 @@ async function runSmartOrder() {
         setStatus(`Selected: ${speakerName}`, 'selected');
         toastr.success(`${speakerName} selected by Director`);
 
-        // Trigger generation for the selected character
-        // Note: do NOT call selectCharacterById here.
-        // generateGroupWrapper handles character switching internally
-        // when force_chid is passed. Calling selectCharacterById
-        // switches the UI to 1-on-1 mode instead of group mode.
         console.log('[Smart Director] Triggering generation for chid:', chid);
         try {
             await Generate('normal', { force_chid: chid });
@@ -773,15 +773,23 @@ async function testConnection() {
         if (mode === 'custom') {
             body = {
                 model: 'gpt-4o-mini',
-                messages: [{ role: 'system', content: testPrompt }],
-                max_tokens: 5,
+                messages: [{ role: 'user', content: testPrompt }],
+                max_tokens: 100,
                 temperature: 0,
             };
         } else if (mode === 'openai') {
+            const activeModel = (typeof getChatCompletionModel === 'function' ? getChatCompletionModel() : null)
+                || oai_settings[`${oai_settings.chat_completion_source}_model`]
+                || oai_settings.openai_model
+                || oai_settings.google_model
+                || oai_settings.custom_model
+                || 'gpt-4o-mini';
+
             body = {
+                model: activeModel,
                 stream: false,
-                messages: [{ role: 'system', content: testPrompt }],
-                max_tokens: 5,
+                messages: [{ role: 'user', content: testPrompt }], // FIXED: Changed to user to satisfy strict validation
+                max_tokens: 100, // FIXED: Expanded from 5 to 100 to prevent reasoning truncation
                 temperature: 0,
                 chat_completion_source: oai_settings.chat_completion_source,
             };
@@ -789,8 +797,8 @@ async function testConnection() {
             body = {
                 stream: false,
                 prompt: testPrompt,
-                max_tokens: 5,
-                max_new_tokens: 5,
+                max_tokens: 100,
+                max_new_tokens: 100,
                 temperature: 0,
                 api_type: textgenerationwebui_settings.type,
                 api_server: textgenerationwebui_settings.server_urls?.[textgenerationwebui_settings.type] || '',
@@ -798,7 +806,7 @@ async function testConnection() {
         } else if (mode === 'kobold') {
             body = {
                 prompt: testPrompt,
-                max_length: 5,
+                max_length: 100,
                 temperature: 0,
                 gui_settings: false,
                 streaming: false,
@@ -862,16 +870,12 @@ let pendingSmartOrder = false;
 let smartOrderRunning = false;
 
 function setupEventListeners() {
-    // Remove blank messages created by generateGroupWrapper when strategy 4 is active.
-    // This only runs during group wrapper execution, NOT during normal editing.
     const removeBlankMessages = () => {
         const context = getContext();
         if (!context.groupId) return;
         const group = context.groups.find(g => g.id === context.groupId);
         if (!group || Number(group.activation_strategy) !== 4) return;
 
-        // Only remove the LAST message if it's a blank user message
-        // (the one generateGroupWrapper just created)
         const lastMessage = context.chat[context.chat.length - 1];
         if (lastMessage && lastMessage.is_user && !lastMessage.mes.trim()) {
             console.log('[Smart Director] Removing blank user message from chat array');
@@ -881,7 +885,6 @@ function setupEventListeners() {
             }
         }
 
-        // Only remove the LAST DOM element if it's a blank user message
         const $lastMes = $('#chat .mes').last();
         if ($lastMes.length) {
             const isUser = $lastMes.hasClass('mes_user') || $lastMes.attr('is_user') === 'true';
@@ -893,7 +896,6 @@ function setupEventListeners() {
         }
     };
 
-    // MutationObserver - ONLY active during group wrapper execution
     let chatObserver = null;
     let pollInterval = null;
 
@@ -905,7 +907,6 @@ function setupEventListeners() {
 
         console.log('[Smart Director] Group wrapper started, activating blank message removal');
 
-        // Connect MutationObserver temporarily
         if (!chatObserver) {
             chatObserver = new MutationObserver((mutations) => {
                 let shouldCheck = false;
@@ -925,11 +926,9 @@ function setupEventListeners() {
             chatObserver.observe(chatContainer, { childList: true, subtree: true });
         }
 
-        // Start polling as backup
         if (pollInterval) clearInterval(pollInterval);
         pollInterval = setInterval(removeBlankMessages, 10);
 
-        // Stop after 2 seconds
         setTimeout(() => {
             if (pollInterval) {
                 clearInterval(pollInterval);
@@ -939,16 +938,12 @@ function setupEventListeners() {
     });
 
     eventSource.on(event_types.GROUP_WRAPPER_FINISHED, () => {
-        // Disconnect MutationObserver so it doesn't interfere with editing
         if (chatObserver) {
             chatObserver.disconnect();
             console.log('[Smart Director] Group wrapper finished, deactivated blank message removal');
         }
     });
 
-    // When user sends a message in a group with strategy 4,
-    // generateGroupWrapper runs and sets is_group_generating = true.
-    // We must NOT call Generate until it finishes, or this_chid will be undefined.
     eventSource.on(event_types.MESSAGE_SENT, (messageId) => {
         const settings = getSettings();
         if (!settings.enabled || !settings.autoTrigger) return;
@@ -967,7 +962,6 @@ function setupEventListeners() {
         if (!pendingSmartOrder) return;
         pendingSmartOrder = false;
 
-        // Guard against duplicate runs
         if (smartOrderRunning) {
             console.log('[Smart Director] Already running, skipping duplicate');
             return;
@@ -976,7 +970,6 @@ function setupEventListeners() {
         console.log('[Smart Director] Group wrapper finished, running Smart Director now');
         smartOrderRunning = true;
 
-        // Small delay to let the UI settle
         setTimeout(async () => {
             try {
                 await runSmartOrder();
@@ -993,16 +986,12 @@ function setupEventListeners() {
 jQuery(async () => {
     console.log('[Smart Director] Extension loading...');
 
-    // Ensure settings exist
     getSettings();
 
-    // Load settings UI
     await loadSettingsUI();
 
-    // Inject into group strategy dropdown
     watchForStrategyDropdown();
 
-    // Set up event listeners
     setupEventListeners();
 
     console.log('[Smart Director] Extension loaded successfully');

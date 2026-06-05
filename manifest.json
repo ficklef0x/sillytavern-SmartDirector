@@ -6,6 +6,6 @@
     "js": "index.js",
     "css": "style.css",
     "author": "ficklef0x",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "description": "Uses an AI Director to intelligently select the next speaker in group chats."
 }
