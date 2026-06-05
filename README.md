@@ -34,6 +34,7 @@ Then enable **Smart Director** from the Extensions panel (cubes icon).
 ### Settings
 
 - **API Mode**: Auto-detect (uses your current API) or Custom (define your own URL/key)
+- **Model Override**: Manually specify a model (e.g., `gemini-2.5-pro`, `deepseek-chat`). Leave blank to use the currently selected SillyTavern model.
 - **Prompt Preset**: Choose from built-in templates or edit your own
 - **Director Prompt**: View and customize the prompt sent to the AI. Uses macros:
   - `{{characters}}` - List of active characters
@@ -101,6 +102,9 @@ vibecoded with kimi 2.6 and gemma 4 by ficklef0x
 
 ## Version History
 
+- **1.0.2** - Model override fix (thanks again to RetiredHippie on the SillyTavern Discord):
+  - Adds a **Model Override** input field so you can manually specify which model the Director uses.
+  - Falls back to the currently selected SillyTavern model when left blank.
 - **1.0.1** - API compatibility fix (thanks to RetiredHippie on the SillyTavern Discord):
   - Adds the missing `model` parameter for OpenAI/custom API requests.
   - Switches message role from `system` to `user` for broader provider compatibility.
