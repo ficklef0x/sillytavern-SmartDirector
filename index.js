@@ -506,13 +506,17 @@ async function callDirectorApi(prompt) {
 function extractSpeaker(response, memberNames) {
     if (!response || !memberNames.length) return null;
 
-    // 0. Try JSON parse first (with markdown code block extraction)
+    // 0. Try JSON parse first (strip reasoning blocks, then markdown code blocks)
     try {
-        let jsonText = response;
-        const codeBlockMatch = response.match(/```json\s*([\s\S]*?)```/);
+        let jsonText = response
+            .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
+            .replace(/<think>[\s\S]*?<\/think>/gi, '')
+            .replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '');
+
+        const codeBlockMatch = jsonText.match(/```json\s*([\s\S]*?)```/);
         if (codeBlockMatch) jsonText = codeBlockMatch[1];
         else {
-            const genericBlockMatch = response.match(/```\s*([\s\S]*?)```/);
+            const genericBlockMatch = jsonText.match(/```\s*([\s\S]*?)```/);
             if (genericBlockMatch) jsonText = genericBlockMatch[1];
         }
 
@@ -590,7 +594,7 @@ function extractSpeaker(response, memberNames) {
         if (!w) continue;
         for (const name of memberNames) {
             const nameClean = name.replace(/[^a-zA-Z0-9]/g, '');
-            if (w.toLowerCase() === nameClean.toLowerCase()) return nameClean;
+            if (w.toLowerCase() === nameClean.toLowerCase()) return name;
         }
     }
 
@@ -634,7 +638,8 @@ async function runSmartOrder() {
     }
 
     const prompt = buildPrompt(memberNames, history);
-    console.log('[Smart Director] Prompt length:', prompt.length);
+    console.log('[Smart Director] Prompt:');
+    console.log(prompt);
     setStatus('Consulting the Director...', 'thinking');
 
     try {
